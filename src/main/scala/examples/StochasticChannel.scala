@@ -14,7 +14,8 @@ object StochasticChannel:
 
   def stocChannel: CTMC[RaftState] = CTMC.ofTransitions(
     // Follower transitions
-    Transition(FOLLOWER, 0.01 --> CANDIDATE),   // election timeout
+    Transition(FOLLOWER, 1 --> CANDIDATE),   // election timeout
+    Transition(FOLLOWER, 10.0  --> FOLLOWER),    // stays follower (receives heartbeat)
     Transition(FOLLOWER, 0.005 --> CRASHED),    // crash
 
     // Candidate transitions
@@ -23,13 +24,12 @@ object StochasticChannel:
     Transition(CANDIDATE, 0.005 --> CRASHED),   // crash
 
     // Leader transitions
-    Transition(LEADER, 0.1   --> LEADER),   // stays leader (highest probability)
+    Transition(LEADER, 0.5   --> LEADER),   // stays leader (highest probability)
     Transition(LEADER, 0.01  --> FOLLOWER), // discovers higher term
     Transition(LEADER, 0.005 --> CRASHED),   // crash
 
-
       // Crashed transitions
-    Transition(CRASHED, 0.01 --> FOLLOWER)      // recovery
+    Transition(CRASHED, 0.1 --> FOLLOWER)      // recovery
   )
 @main def mainStochasticChannel() = // example run
   import StochasticChannel.*
