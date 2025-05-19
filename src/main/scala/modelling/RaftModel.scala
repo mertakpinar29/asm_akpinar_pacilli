@@ -96,6 +96,7 @@ object RaftModel:
           term = leader.term,
           votedFor = None
         )
+
       case Role.Leader if leader.term > receiver.term =>
         receiver.copy(
           role = Role.Follower,
@@ -106,6 +107,7 @@ object RaftModel:
       case _ =>
         receiver
 
+//    println(s"Heartbeat: Leader ${leaderId} → Node ${receiverId} (was ${receiver.role}, now ${updatedReceiver.role})")
     val updatedMap = state.servers.updated(receiverId, updatedReceiver)
     state.copy(servers = updatedMap)
 
@@ -116,20 +118,24 @@ object RaftModel:
       val followersOrCandidates = state.servers.values.filter(s =>
         (s.role == Role.Follower || s.role == Role.Candidate) && !s.timeoutExpired
       )
-      val timeoutTriggers: Set[Action[ServerState]] = followersOrCandidates.map { s =>
-        1.5 --> expireTimeout(state, s.id)
-      }.toSet
+      val timeoutTriggers: Set[Action[ServerState]] =
+        if (leaders.nonEmpty)
+          Set.empty // Don't allow timeouts if a leader is alive
+        else
+        followersOrCandidates.map { s =>
+          1.5 --> expireTimeout(state, s.id)
+        }.toSet
       val roleTransitions: Set[Action[ServerState]] = state.servers.values.flatMap {
         case s if s.role == Role.Follower && s.timeoutExpired =>
           Set(2.0 --> transition(state, s.id))
-        case s if s.role == Role.Candidate && s.term <= state.currentTerm =>
+        case s if s.role == Role.Candidate && s.term <= state.currentTerm && leaders.isEmpty =>
           Set(2.0 --> transition(state, s.id))
         case _ => Set.empty
       }.toSet
       val heartbeatTransitions: Set[Action[ServerState]] = leaders.flatMap { leader =>
         val followerIds = state.servers.keySet - leader.id
         followerIds.map { fid =>
-          0.8 --> sendHeartbeat(state, leader.id, fid)
+          4.0 --> sendHeartbeat(state, leader.id, fid)
         }
       }.toSet
 
