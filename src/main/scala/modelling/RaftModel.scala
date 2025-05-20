@@ -27,7 +27,7 @@ var startElection: LocalTime = LocalTime.now()
 object RaftModel:
   def initialState(numServers: Int): ServerState = // all servers start as followers at term 0
     val servers = (0 until numServers).map { id =>
-      id -> Server(id, Role.Follower, 0, None, List(), false, Random.between(0, 5))
+      id -> Server(id, Role.Follower, 0, None, List(), false, Random.between(0.5, 2.0))
     }.toMap
     ServerState(servers, Map(), 0)
 
@@ -70,7 +70,7 @@ object RaftModel:
           case None =>
             // no leader, proceed to collect votes
             val now = LocalTime.now()
-            if  now.isAfter(startElection.plusSeconds(server.electionTimeout.toLong)) then
+            if now.isAfter(startElection.plusNanos((server.electionTimeout * 1e8).toLong)) then
               val reverted = server.copy(
                 role = Role.Follower,
                 timeoutExpired = false,
@@ -81,7 +81,7 @@ object RaftModel:
               // collect votes and see if we have a majority
               val stateWithVotes = collectVotes(state, serverId)
               val updatedVotes = stateWithVotes.votes.getOrElse(serverId, Set())
-            
+
               if updatedVotes.size > stateWithVotes.servers.size / 2 then
                 val updatedServer = server.copy(role = Role.Leader)
                 val updatedServers = stateWithVotes.servers.updated(serverId, updatedServer)
