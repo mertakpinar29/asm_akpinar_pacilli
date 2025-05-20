@@ -1,8 +1,10 @@
 package modelling
 import modelling.CTMC.*
+import scala.util.Random
+import java.time.LocalTime
 
 enum Role:
-  case Follower, Candidate, Leader
+  case Follower, Candidate, Leader, Crashed
 
 case class Server(
                    id: Int,
@@ -10,7 +12,8 @@ case class Server(
                    term: Int,
                    votedFor: Option[Int],
                    log: List[String],
-                   timeoutExpired: Boolean = false
+                   timeoutExpired: Boolean = false,
+                   electionTimeout: Double
                  )
 
 case class ServerState(
@@ -19,10 +22,12 @@ case class ServerState(
                         currentTerm: Int
                       )
 
+var startElection: LocalTime = LocalTime.now()
+
 object RaftModel:
   def initialState(numServers: Int): ServerState = // all servers start as followers at term 0
     val servers = (0 until numServers).map { id =>
-      id -> Server(id, Role.Follower, 0, None, List())
+      id -> Server(id, Role.Follower, 0, None, List(), false, Random.between(0, 5))
     }.toMap
     ServerState(servers, Map(), 0)
 
@@ -33,6 +38,8 @@ object RaftModel:
         if !server.timeoutExpired || state.servers.values.exists(_.role == Role.Leader) then
           state
         else // when switching to candidate, the term is incremented and votedFor is set to self
+          // when starting election, start election timer
+          val startElection = LocalTime.now()
           val newTerm = server.term + 1
           val updatedServer = server.copy(
             role = Role.Candidate,
@@ -62,18 +69,44 @@ object RaftModel:
               state // no action if candidate is already up-to-date
           case None =>
             // no leader, proceed to collect votes
-            val stateWithVotes = collectVotes(state, serverId)
-            val updatedVotes = stateWithVotes.votes.getOrElse(serverId, Set())
-
-            if updatedVotes.size > stateWithVotes.servers.size / 2 then
-              val updatedServer = server.copy(role = Role.Leader)
-              val updatedServers = stateWithVotes.servers.updated(serverId, updatedServer)
-              val newTerm = math.max(stateWithVotes.currentTerm, server.term)
-              stateWithVotes.copy(servers = updatedServers, currentTerm = newTerm)
+            val now = LocalTime.now()
+            if  now.isAfter(startElection.plusSeconds(server.electionTimeout.toLong)) then
+              val reverted = server.copy(
+                role = Role.Follower,
+                timeoutExpired = false,
+                votedFor = None
+              )
+              state.copy(servers = state.servers.updated(serverId, reverted))
             else
-              stateWithVotes
-      case Role.Leader =>
-        state
+              // collect votes and see if we have a majority
+              val stateWithVotes = collectVotes(state, serverId)
+              val updatedVotes = stateWithVotes.votes.getOrElse(serverId, Set())
+            
+              if updatedVotes.size > stateWithVotes.servers.size / 2 then
+                val updatedServer = server.copy(role = Role.Leader)
+                val updatedServers = stateWithVotes.servers.updated(serverId, updatedServer)
+                val newTerm = math.max(stateWithVotes.currentTerm, server.term)
+                stateWithVotes.copy(servers = updatedServers, currentTerm = newTerm)
+              else
+                stateWithVotes
+      case Role.Leader => // leader can crash
+        val updatedServer = server.copy(
+          role = Role.Crashed,
+          term = server.term,
+          votedFor = None,
+          timeoutExpired = false
+        )
+        val updatedServers = state.servers.updated(serverId, updatedServer)
+        state.copy(servers = updatedServers, currentTerm = server.term)
+      case Role.Crashed => // a crashed server can recover and become a follower
+        val updatedServer = server.copy(
+          role = Role.Follower,
+          term = server.term,
+          votedFor = None,
+          timeoutExpired = false
+        )
+        val updatedServers = state.servers.updated(serverId, updatedServer)
+        state.copy(servers = updatedServers, currentTerm = server.term)
 
   private def requestVote(state: ServerState, candidateId: Int, followerId: Int): ServerState = // a follower can vote for a candidate if it has not voted yet and the candidate's term is greater than or equal to its own
     val candidate = state.servers(candidateId)
@@ -149,6 +182,10 @@ object RaftModel:
           Set(2.0 --> transition(state, s.id))
         case s if s.role == Role.Candidate && s.term <= state.currentTerm && leaders.isEmpty =>
           Set(2.0 --> transition(state, s.id))
+        case s if s.role == Role.Leader =>
+          Set(0.5 --> transition(state, s.id))
+        case s if s.role == Role.Crashed =>
+          Set(0.1 --> transition(state, s.id))
         case _ => Set.empty
       }.toSet
       val heartbeatTransitions: Set[Action[ServerState]] = leaders.flatMap { leader =>
