@@ -30,7 +30,7 @@ object RaftModel:
     val server = state.servers(serverId)
     server.role match
       case Role.Follower => // a follower can become a candidate on timeout
-        if !server.timeoutExpired then
+        if !server.timeoutExpired || state.servers.values.exists(_.role == Role.Leader) then
           state
         else // when switching to candidate, the term is incremented and votedFor is set to self
           val newTerm = server.term + 1
@@ -43,17 +43,35 @@ object RaftModel:
           val updatedServers = state.servers.updated(serverId, updatedServer)
           val updatedVotes = state.votes + (serverId -> Set(serverId))
           state.copy(servers = updatedServers, votes = updatedVotes, currentTerm = newTerm)
-      case Role.Candidate => // a candidate can become a leader if it receives votes from more than half of the servers
-        val stateWithVotes = collectVotes(state, serverId)
-        val updatedVotes = stateWithVotes.votes.getOrElse(serverId, Set())
+      case Role.Candidate =>
+        val maybeLeader = state.servers.values.find(_.role == Role.Leader)
 
-        if updatedVotes.size > stateWithVotes.servers.size / 2 then
-          val updatedServer = server.copy(role = Role.Leader)
-          val updatedServers = stateWithVotes.servers.updated(serverId, updatedServer)
-          val newTerm = math.max(stateWithVotes.currentTerm, server.term)
-          stateWithVotes.copy(servers = updatedServers, currentTerm = newTerm)
-        else
-          stateWithVotes
+        maybeLeader match
+          case Some(leader) =>
+          // If candidate's term is lower, update term and become Follower
+            if server.term != leader.term then
+              val updatedServer = server.copy(
+                role = Role.Follower,
+                term = leader.term,
+                timeoutExpired = false,
+                votedFor = None
+              )
+              val updatedServers = state.servers.updated(serverId, updatedServer)
+              state.copy(servers = updatedServers, currentTerm = leader.term)
+            else
+              state // no action if candidate is already up-to-date
+          case None =>
+            // no leader, proceed to collect votes
+            val stateWithVotes = collectVotes(state, serverId)
+            val updatedVotes = stateWithVotes.votes.getOrElse(serverId, Set())
+
+            if updatedVotes.size > stateWithVotes.servers.size / 2 then
+              val updatedServer = server.copy(role = Role.Leader)
+              val updatedServers = stateWithVotes.servers.updated(serverId, updatedServer)
+              val newTerm = math.max(stateWithVotes.currentTerm, server.term)
+              stateWithVotes.copy(servers = updatedServers, currentTerm = newTerm)
+            else
+              stateWithVotes
       case Role.Leader =>
         state
 
@@ -107,7 +125,8 @@ object RaftModel:
       case _ =>
         receiver
 
-//    println(s"Heartbeat: Leader ${leaderId} → Node ${receiverId} (was ${receiver.role}, now ${updatedReceiver.role})")
+    if receiver.role == Role.Candidate then
+      println(s"Heartbeat sent to Candidate ${receiverId}, currentTerm = ${receiver.term}, leaderTerm = ${leader.term}, updatedRole = ${updatedReceiver.role}")
     val updatedMap = state.servers.updated(receiverId, updatedReceiver)
     state.copy(servers = updatedMap)
 
@@ -135,7 +154,15 @@ object RaftModel:
       val heartbeatTransitions: Set[Action[ServerState]] = leaders.flatMap { leader =>
         val followerIds = state.servers.keySet - leader.id
         followerIds.map { fid =>
-          4.0 --> sendHeartbeat(state, leader.id, fid)
+          val updatedState = sendHeartbeat(state, leader.id, fid)
+
+          // Optional debug logging — remove in final version
+          val from = state.servers(fid)
+          val to = updatedState.servers(fid)
+          if from.role != to.role || from.term != to.term then
+            println(s"Heartbeat applied: ${fid} ${from.role} → ${to.role}, term ${from.term} → ${to.term}")
+
+          4.0 --> updatedState
         }
       }.toSet
 

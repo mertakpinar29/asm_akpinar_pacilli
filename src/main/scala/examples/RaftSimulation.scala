@@ -5,7 +5,7 @@ import modelling.RaftCTMCSimulation.*
 import java.util.Random
 
 @main def runSimulation(): Unit =
-  val initial = initialState(5) // number of servers
+  val initial = initialState(10) // number of servers
   val trace = raftCTMC.newSimulationTrace(initial, new Random)
 
   trace
