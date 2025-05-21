@@ -34,12 +34,11 @@ object RaftModel:
   private def transition(state: ServerState, serverId: Int): ServerState =
     val server = state.servers(serverId)
     server.role match
-      case Role.Follower => // a follower can become a candidate on timeout
+      case Role.Follower =>
+        // A follower can become candidate on timeout only if no leader exists
         if !server.timeoutExpired || state.servers.values.exists(_.role == Role.Leader) then
           state
-        else // when switching to candidate, the term is incremented and votedFor is set to self
-          // when starting election, start election timer
-          val startElection = LocalTime.now()
+        else
           val newTerm = server.term + 1
           val updatedServer = server.copy(
             role = Role.Candidate,
@@ -50,13 +49,14 @@ object RaftModel:
           val updatedServers = state.servers.updated(serverId, updatedServer)
           val updatedVotes = state.votes + (serverId -> Set(serverId))
           state.copy(servers = updatedServers, votes = updatedVotes, currentTerm = newTerm)
+
       case Role.Candidate =>
         val maybeLeader = state.servers.values.find(_.role == Role.Leader)
 
         maybeLeader match
           case Some(leader) =>
-          // If candidate's term is lower, update term and become Follower
             if server.term != leader.term then
+              // Leader exists with different term: step down
               val updatedServer = server.copy(
                 role = Role.Follower,
                 term = leader.term,
@@ -66,11 +66,13 @@ object RaftModel:
               val updatedServers = state.servers.updated(serverId, updatedServer)
               state.copy(servers = updatedServers, currentTerm = leader.term)
             else
-              state // no action if candidate is already up-to-date
+              // Leader with same term, no action needed
+              state
+
           case None =>
-            // no leader, proceed to collect votes
-            val now = LocalTime.now()
-            if now.isAfter(startElection.plusNanos((server.electionTimeout * 1e8).toLong)) then
+            // No leader exists
+            if server.timeoutExpired then
+              // Candidate timed out without becoming leader → revert to follower
               val reverted = server.copy(
                 role = Role.Follower,
                 timeoutExpired = false,
@@ -78,18 +80,21 @@ object RaftModel:
               )
               state.copy(servers = state.servers.updated(serverId, reverted))
             else
-              // collect votes and see if we have a majority
+              // Still collecting votes
               val stateWithVotes = collectVotes(state, serverId)
               val updatedVotes = stateWithVotes.votes.getOrElse(serverId, Set())
 
               if updatedVotes.size > stateWithVotes.servers.size / 2 then
+                // Won majority, become leader
                 val updatedServer = server.copy(role = Role.Leader)
                 val updatedServers = stateWithVotes.servers.updated(serverId, updatedServer)
                 val newTerm = math.max(stateWithVotes.currentTerm, server.term)
                 stateWithVotes.copy(servers = updatedServers, currentTerm = newTerm)
               else
                 stateWithVotes
-      case Role.Leader => // leader can crash
+
+      case Role.Leader =>
+        // Leader can crash
         val updatedServer = server.copy(
           role = Role.Crashed,
           term = server.term,
@@ -98,7 +103,9 @@ object RaftModel:
         )
         val updatedServers = state.servers.updated(serverId, updatedServer)
         state.copy(servers = updatedServers, currentTerm = server.term)
-      case Role.Crashed => // a crashed server can recover and become a follower
+
+      case Role.Crashed =>
+        // Crashed server recovers as follower
         val updatedServer = server.copy(
           role = Role.Follower,
           term = server.term,
