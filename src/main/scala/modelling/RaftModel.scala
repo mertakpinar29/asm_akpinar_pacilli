@@ -47,7 +47,7 @@ object RaftModel:
             timeoutExpired = false
           )
           val updatedServers = state.servers.updated(serverId, updatedServer)
-          val updatedVotes = state.votes + (serverId -> Set(serverId))
+          val updatedVotes = Map(serverId -> Set(serverId))
           state.copy(servers = updatedServers, votes = updatedVotes, currentTerm = newTerm)
 
       case Role.Candidate =>
@@ -206,7 +206,7 @@ object RaftModel:
           if from.role != to.role || from.term != to.term then
             println(s"Heartbeat applied: ${fid} ${from.role} → ${to.role}, term ${from.term} → ${to.term}")
 
-          4.0 --> updatedState
+          10.0 --> updatedState
         }
       }.toSet
 
