@@ -12,7 +12,8 @@ case class Server(
                    term: Int,
                    votedFor: Option[Int],
                    log: List[String],
-                   timeoutExpired: Boolean = false
+                   timeoutExpired: Boolean = false,
+                   electionTimeout: Double
                  )
 
 case class ServerState(
@@ -35,7 +36,8 @@ var startElection: LocalTime = LocalTime.now()
 object RaftModel:
   def initialState(numServers: Int): ServerState = // all servers start as followers at term 0
     val servers = (0 until numServers).map { id =>
-      id -> Server(id, Role.Follower, 0, None, List())
+      val randomizedTimeout = 0.15 + scala.util.Random.nextDouble() * 0.15
+      id -> Server(id, Role.Follower, 0, None, List(), false, randomizedTimeout)
     }.toMap
     ServerState(servers, Map(), 0)
 
@@ -127,16 +129,38 @@ object RaftModel:
     val candidate = state.servers(candidateId)
     val follower = state.servers(followerId)
 
-    if follower.role == Role.Follower && follower.votedFor.isEmpty && candidate.term >= follower.term then
-      val updatedFollower = follower.copy(votedFor = Some(candidateId), term = candidate.term)
-      val updatedServers = state.servers.updated(followerId, updatedFollower)
-      val updatedVotes = state.votes.updatedWith(candidateId) {
-        case Some(voters) => Some(voters + followerId)
-        case None => Some(Set(followerId))
-      }
-      state.copy(servers = updatedServers, votes = updatedVotes)
-    else
+    if candidate.term < follower.term then // reject vote if candidate's term is lower
       state
+    else // Possibly update follower's term and role if candidate's term is higher
+      val steppedDownFollower =
+        if candidate.term > follower.term then
+          follower.copy(
+            term = candidate.term,
+            role = Role.Follower,
+            votedFor = None,
+            timeoutExpired = false
+          )
+        else follower
+
+      // Grant vote if follower hasn't voted yet in this term
+      val shouldGrantVote = steppedDownFollower.votedFor.isEmpty
+
+      val updatedFollower =
+        if shouldGrantVote then
+          steppedDownFollower.copy(votedFor = Some(candidateId))
+        else steppedDownFollower
+
+      val updatedServers = state.servers.updated(followerId, updatedFollower)
+
+      val updatedVotes =
+        if shouldGrantVote then
+          state.votes.updatedWith(candidateId) {
+            case Some(voters) => Some(voters + followerId)
+            case None => Some(Set(followerId))
+          }
+        else state.votes
+
+      state.copy(servers = updatedServers, votes = updatedVotes, currentTerm = math.max(state.currentTerm, candidate.term))
 
   private def collectVotes(state: ServerState, candidateId: Int): ServerState = // a candidate collects votes from all followers
     val otherIds = state.servers.keySet - candidateId
@@ -185,7 +209,10 @@ object RaftModel:
       val followersOrCandidates = state.servers.values
         .filter(s => (s.role == Role.Follower || s.role == Role.Candidate) && !s.timeoutExpired)
       val timeoutTriggers: Set[Action[ServerState]] =
-        followersOrCandidates.map(s => TIMEOUT_RATE --> expireTimeout(state, s.id)).toSet
+        followersOrCandidates.map { s =>
+          val timeoutRate = 1.0 / s.electionTimeout
+          timeoutRate --> expireTimeout(state, s.id)
+        }.toSet
       val roleTransitions: Set[Action[ServerState]] = state.servers.values.flatMap {
         case s if s.role == Role.Follower && s.timeoutExpired =>
           Set(TIMEOUT_RATE --> transition(state, s.id))
