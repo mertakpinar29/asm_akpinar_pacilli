@@ -12,8 +12,7 @@ case class Server(
                    term: Int,
                    votedFor: Option[Int],
                    log: List[String],
-                   timeoutExpired: Boolean = false,
-                   electionTimeout: Double
+                   timeoutExpired: Boolean = false
                  )
 
 case class ServerState(
@@ -22,12 +21,21 @@ case class ServerState(
                         currentTerm: Int
                       )
 
+val BROADCAST_TIME: Double = 0.02
+val ELECTION_TIMEOUT: Double = 0.3
+val MTBF: Double = 100.0 // Mean Time Between Failures
+
+val TIMEOUT_RATE = 1.0 / ELECTION_TIMEOUT // ≈ 3.33
+val HEARTBEAT_RATE = 1.0 / BROADCAST_TIME // ≈ 50.0
+val CRASH_RATE = 50.0 / MTBF // 0.01
+val RECOVERY_RATE: Double = 1.0 / 5.0 // 0.2
+
 var startElection: LocalTime = LocalTime.now()
 
 object RaftModel:
   def initialState(numServers: Int): ServerState = // all servers start as followers at term 0
     val servers = (0 until numServers).map { id =>
-      id -> Server(id, Role.Follower, 0, None, List(), false, Random.between(0.5, 2.0))
+      id -> Server(id, Role.Follower, 0, None, List())
     }.toMap
     ServerState(servers, Map(), 0)
 
@@ -182,17 +190,17 @@ object RaftModel:
           Set.empty // Don't allow timeouts if a leader is alive
         else
         followersOrCandidates.map { s =>
-          1.5 --> expireTimeout(state, s.id)
+          TIMEOUT_RATE --> expireTimeout(state, s.id)
         }.toSet
       val roleTransitions: Set[Action[ServerState]] = state.servers.values.flatMap {
         case s if s.role == Role.Follower && s.timeoutExpired =>
-          Set(2.0 --> transition(state, s.id))
+          Set(TIMEOUT_RATE --> transition(state, s.id))
         case s if s.role == Role.Candidate && s.term <= state.currentTerm && leaders.isEmpty =>
-          Set(2.0 --> transition(state, s.id))
+          Set(TIMEOUT_RATE --> transition(state, s.id))
         case s if s.role == Role.Leader =>
-          Set(0.5 --> transition(state, s.id))
+          Set(CRASH_RATE --> transition(state, s.id))
         case s if s.role == Role.Crashed =>
-          Set(0.1 --> transition(state, s.id))
+          Set(RECOVERY_RATE --> transition(state, s.id))
         case _ => Set.empty
       }.toSet
       val heartbeatTransitions: Set[Action[ServerState]] = leaders.flatMap { leader =>
@@ -206,7 +214,7 @@ object RaftModel:
           if from.role != to.role || from.term != to.term then
             println(s"Heartbeat applied: ${fid} ${from.role} → ${to.role}, term ${from.term} → ${to.term}")
 
-          10.0 --> updatedState
+          HEARTBEAT_RATE --> updatedState
         }
       }.toSet
 
