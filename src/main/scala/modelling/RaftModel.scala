@@ -63,7 +63,7 @@ object RaftModel:
 
         maybeLeader match
           case Some(leader) =>
-            if server.term != leader.term then
+            if leader.term >= server.term then
               // Leader exists with different term: step down
               val updatedServer = server.copy(
                 role = Role.Follower,
@@ -182,16 +182,10 @@ object RaftModel:
     case state =>
       val followers = state.servers.values.filter(_.role == Role.Follower)
       val leaders = state.servers.values.filter(_.role == Role.Leader)
-      val followersOrCandidates = state.servers.values.filter(s =>
-        (s.role == Role.Follower || s.role == Role.Candidate) && !s.timeoutExpired
-      )
+      val followersOrCandidates = state.servers.values
+        .filter(s => (s.role == Role.Follower || s.role == Role.Candidate) && !s.timeoutExpired)
       val timeoutTriggers: Set[Action[ServerState]] =
-        if (leaders.nonEmpty)
-          Set.empty // Don't allow timeouts if a leader is alive
-        else
-        followersOrCandidates.map { s =>
-          TIMEOUT_RATE --> expireTimeout(state, s.id)
-        }.toSet
+        followersOrCandidates.map(s => TIMEOUT_RATE --> expireTimeout(state, s.id)).toSet
       val roleTransitions: Set[Action[ServerState]] = state.servers.values.flatMap {
         case s if s.role == Role.Follower && s.timeoutExpired =>
           Set(TIMEOUT_RATE --> transition(state, s.id))
