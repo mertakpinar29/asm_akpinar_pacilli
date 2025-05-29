@@ -1,0 +1,27 @@
+// the probability of ever reaching a state where 2 or more are leaders is 0
+P<=0 [ F (s0=2 & s1=2) | (s0=2 & s2=2) | (s1=2 & s2=2) ] 
+
+// What's the probability that one of the servers becomes a leader within 2 units of time?
+P=? [ F<=2 (s0=2 | s1=2 | s2=2) ] 
+
+// What's the probability that one of the servers becomes a leader within 1 unit of time?
+P=? [ F<=1 (s0=2 | s1=2 | s2=2) ] 
+
+// Eventually, Server0 becomes leader, even if it crashes and recovers
+P=? [ F (s0=2) ] 
+
+// probability that at least one leader is eventually elected — regardless of crashes and recoveries
+P=? [ F (s0=2 | s1=2 | s2=2) ]
+
+// how long the system typically takes to stabilize
+R{"time"}=? [ F (s0=2 | s1=2 | s2=2) ] 
+
+// no server is leader while another has a higher term 
+P>=1 [ G<=10 (   (s0=2 => term0 >= term1 & term0 >= term2) &   (s1=2 => term1 >= term0 & term1 >= term2) &   (s2=2 => term2 >= term0 & term2 >= term1) ) ] 
+
+// With at least 99% probability, a leader is elected within 5 time units
+P>=0.99 [ F<=3 (s0=2 | s1=2 | s2=2) ] 
+
+// Eventually, a recovered server can become leader again
+P>0 [ F (s0=2) ]
+
