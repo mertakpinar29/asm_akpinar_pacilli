@@ -15,13 +15,13 @@ import java.util.Random
   runScenario4()
 
 def runScenario1(): Unit =
-  runSimulation("Scenario 1: Normal Startup", numServers = 7, detectSplitVotes = true)
+  runScenarioSimulation("Scenario 1: Normal Startup", numServers = 7, detectSplitVotes = true)
 
 def runScenario2(): Unit =
-  runSimulation("Scenario 2: Split Vote", numServers = 6, detectSplitVotes = true)
+  runScenarioSimulation("Scenario 2: Split Vote", numServers = 6, detectSplitVotes = true)
 
 def runScenario3(): Unit =
-  runSimulation("Scenario 3: Leader Crash", numServers = 7, trackCrashes = true)
+  runScenarioSimulation("Scenario 3: Leader Crash", numServers = 7, trackCrashes = true)
 
 def runScenario4(): Unit =
   val boostedCrashRate = 1.0
@@ -42,7 +42,7 @@ def runScenario4(): Unit =
     }.toSet
   )
 
-  runSimulation(
+  runScenarioSimulation(
     scenarioName = "Scenario 4: Frequent Crashes",
     numServers = 7,
     simTimeLimit = 60.0,
@@ -50,7 +50,7 @@ def runScenario4(): Unit =
     customCTMC = Some(highCrashCTMC)
   )
 
-def runSimulation(
+def runScenarioSimulation(
                    scenarioName: String,
                    numServers: Int,
                    simTimeLimit: Double = 40.0,
