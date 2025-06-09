@@ -6,60 +6,31 @@ import modelling.RaftModel.raftCTMC
 import modelling.RaftCTMCSimulation.*
 import modelling.Role
 import modelling.ServerState
+import modelling.CTMC.Action
 import java.util.Random
+import java.io.{File, PrintWriter}
 
-@main def runScenarios(): Unit =
-  runScenario1()
-  runScenario2()
-  runScenario3()
-  runScenario4()
-
-def runScenario1(): Unit =
-  runScenarioSimulation("Scenario 1: Normal Startup", numServers = 7, detectSplitVotes = true)
-
-def runScenario2(): Unit =
-  runScenarioSimulation("Scenario 2: Split Vote", numServers = 6, detectSplitVotes = true)
-
-def runScenario3(): Unit =
-  runScenarioSimulation("Scenario 3: Leader Crash", numServers = 7, trackCrashes = true)
-
-def runScenario4(): Unit =
-  val boostedCrashRate = 1.0
-
-  def isLeaderCrash(before: ServerState, after: ServerState): Boolean =
-    before.servers.exists {
-      case (id, s) =>
-        s.role == Role.Leader &&
-          after.servers.get(id).exists(_.role == Role.Crashed)
-    }
-
-  val highCrashCTMC = CTMC.ofFunction ((state: ServerState) => // highCrachCTMC is a modified version of raftCTMC where leader crash rate is boosted
-    val original = raftCTMC.transitions(state)
-    original.map {
-      case Action(rate, sNext) if isLeaderCrash(state, sNext) =>
-        Action(boostedCrashRate, sNext)
-      case other => other
-    }.toSet
-  )
-
-  runScenarioSimulation(
-    scenarioName = "Scenario 4: Frequent Crashes",
-    numServers = 7,
-    simTimeLimit = 60.0,
-    trackCrashes = true,
-    customCTMC = Some(highCrashCTMC)
-  )
+case class SimulationStats(
+                            scenario: String,
+                            runId: Int,
+                            termChanges: Int,
+                            uniqueLeaders: Int,
+                            firstLeaderTime: Double,
+                            splitVoteCount: Int,
+                            maxSimultaneousCandidates: Int,
+                            crashEvents: Int,
+                            recoveryEvents: Int,
+                            reElections: Int,
+                            avgLeaderTenure: Double
+                          )
 
 def runScenarioSimulation(
-                   scenarioName: String,
-                   numServers: Int,
-                   simTimeLimit: Double = 40.0,
-                   detectSplitVotes: Boolean = false,
-                   trackCrashes: Boolean = false,
-                   customCTMC: Option[CTMC[ServerState]] = None
-                 ): Unit =
-  //println(s"\n--- $scenarioName ---\n")
-
+                           scenarioName: String,
+                           numServers: Int,
+                           simTimeLimit: Double = 40.0,
+                           customCTMC: Option[CTMC[ServerState]] = None,
+                           runId: Int = 0
+                         ): SimulationStats = {
   val rng = new Random()
   val initial = initialState(numServers)
   val trace = customCTMC.getOrElse(raftCTMC).newSimulationTrace(initial, rng)
@@ -82,85 +53,110 @@ def runScenarioSimulation(
   var totalLeaderTenure = 0.0
   var leaderTenureCount = 0
 
-  //println("%-6s | %-50s".format("Time", "Server Roles (id:role@Tn)"))
+  trace.takeWhile(_.time <= simTimeLimit).foreach { event =>
+    val time = event.time
+    val state = event.state
 
-  trace
-    .takeWhile(_.time <= simTimeLimit)
-    .foreach { event =>
-      val time = event.time
-      val state = event.state
-
-      if detectSplitVotes then
-        val candidates = state.servers.values.count(_.role == Role.Candidate)
-        val leaderCount = state.servers.values.count(_.role == Role.Leader)
-        maxSimultaneousCandidates = math.max(maxSimultaneousCandidates, candidates)
-        if candidates >= 2 && leaderCount == 0 then
-          //println(f"[SPLIT VOTE] $time%.2f → $candidates candidates, no leader")
-          splitVoteCount += 1
-
-      if trackCrashes then
-        val crashed = state.servers.collect {
-          case (id, s) if s.role == Role.Crashed => id
-        }.toSet
-
-        if lastLeader.exists(crashed.contains) && lastCrashTime.isEmpty then
-          //println(f"[CRASH] $time%.2f → Leader ${lastLeader.get} crashed")
-          lastCrashTime = Some(time)
-          crashEvents += 1
-
-          lastLeaderStartTime.foreach { start =>
-            val tenure = time - start
-            totalLeaderTenure += tenure
-            leaderTenureCount += 1
-          }
-          lastLeaderStartTime = None
-
-        if lastCrashTime.isDefined && time - lastCrashTime.get >= 5.0 then
-          recoveryEvents += 1
-          lastCrashTime = None
-
-      if state.currentTerm != lastTerm then
-        termChanges += 1
-        lastTerm = state.currentTerm
-
-      state.servers.find(_._2.role == Role.Leader).foreach { case (id, _) =>
-        if firstLeaderTime.isEmpty then firstLeaderTime = Some(time)
-
-        if lastLeader.isEmpty || lastLeader.get != id then
-          leaderReElections = leaderReElections.updated(id, leaderReElections(id) + 1)
-          // println(f"[NEW LEADER] $time%.2f → Server $id elected")
-
-          lastLeader = Some(id)
-          lastLeaderStartTime = Some(time)
-        leaders += id
-      }
-
-      val rolesStr = state.servers.toList
-        .sortBy(_._1)
-        .map { case (id, s) => s"$id:${s.role}@T${s.term}" }
-        .mkString(" ")
-      //println(f"$time%-6.2f | $rolesStr")
+    val candidates = state.servers.values.count(_.role == Role.Candidate)
+    val leaderCount = state.servers.values.count(_.role == Role.Leader)
+    maxSimultaneousCandidates = math.max(maxSimultaneousCandidates, candidates)
+    if (candidates >= 2 && leaderCount == 0) {
+      splitVoteCount += 1
     }
+
+    val crashed = state.servers.collect {
+      case (id, s) if s.role == Role.Crashed => id
+    }.toSet
+
+    if (lastLeader.exists(crashed.contains) && lastCrashTime.isEmpty) {
+      lastCrashTime = Some(time)
+      crashEvents += 1
+      lastLeaderStartTime.foreach { start =>
+        totalLeaderTenure += time - start
+        leaderTenureCount += 1
+      }
+      lastLeaderStartTime = None
+    }
+
+    if (lastCrashTime.isDefined && time - lastCrashTime.get >= 5.0) {
+      recoveryEvents += 1
+      lastCrashTime = None
+    }
+
+    if (state.currentTerm != lastTerm) {
+      termChanges += 1
+      lastTerm = state.currentTerm
+    }
+
+    state.servers.find(_._2.role == Role.Leader).foreach { case (id, _) =>
+      if (firstLeaderTime.isEmpty) firstLeaderTime = Some(time)
+      if (lastLeader.isEmpty || lastLeader.get != id) {
+        leaderReElections = leaderReElections.updated(id, leaderReElections(id) + 1)
+        lastLeader = Some(id)
+        lastLeaderStartTime = Some(time)
+      }
+      leaders += id
+    }
+  }
 
   lastLeaderStartTime.foreach { start =>
     totalLeaderTenure += simTimeLimit - start
     leaderTenureCount += 1
   }
 
-  println(s"\n--- $scenarioName Summary ---")
-  println(s"Total terms entered            : $termChanges")
-  println(s"Unique leaders elected         : ${leaders.size}")
-  println(s"Leader server IDs              : ${leaders.toList.mkString(", ")}")
-  val formattedTime = firstLeaderTime.map(t => f"$t%.2f").getOrElse("never")
-  println(s"First leader elected at        : $formattedTime")
+  SimulationStats(
+    scenario = scenarioName,
+    runId = runId,
+    termChanges = termChanges,
+    uniqueLeaders = leaders.size,
+    firstLeaderTime = firstLeaderTime.getOrElse(-1.0),
+    splitVoteCount = splitVoteCount,
+    maxSimultaneousCandidates = maxSimultaneousCandidates,
+    crashEvents = crashEvents,
+    recoveryEvents = recoveryEvents,
+    reElections = leaderReElections.values.sum,
+    avgLeaderTenure = if leaderTenureCount > 0 then totalLeaderTenure / leaderTenureCount else 0.0
+  )
+}
 
-  if detectSplitVotes then
-        println(s"Split vote events detected    : $splitVoteCount")
-        println(s"Max simultaneous candidates   : $maxSimultaneousCandidates")
 
-    if trackCrashes then
-      println(s"Total leader crashes           : $crashEvents")
-      println(s"Total recoveries observed      : $recoveryEvents")
-      println(s"Leader re-elections            : ${leaderReElections.values.sum}")
-      val avgTenure = if leaderTenureCount > 0 then totalLeaderTenure / leaderTenureCount else 0.0
-      println(f"Average leader tenure (seconds): $avgTenure%.2f")
+def runAllScenarios(repeats: Int): Seq[SimulationStats] = {
+  val boostedCrashRate = 1.0
+
+  def isLeaderCrash(before: ServerState, after: ServerState): Boolean =
+    before.servers.exists { case (id, s) =>
+      s.role == Role.Leader && after.servers.get(id).exists(_.role == Role.Crashed)
+    }
+
+  val highCrashCTMC = CTMC.ofFunction((state: ServerState) =>
+    raftCTMC.transitions(state).map {
+      case Action(rate, sNext) if isLeaderCrash(state, sNext) =>
+        Action(boostedCrashRate, sNext)
+      case other => other
+    }.toSet
+  )
+
+  val results = for (i <- 1 to repeats) yield {
+    Seq(
+      runScenarioSimulation("Normal Startup", 7, runId = i),
+      runScenarioSimulation("Split Vote", 6, runId = i),
+      runScenarioSimulation("Frequent Crashes", 7, 60.0, customCTMC = Some(highCrashCTMC), runId = i)
+    )
+  }
+  results.flatten
+}
+
+def saveResultsToCSV(stats: Seq[SimulationStats], filePath: String): Unit = {
+  val writer = new PrintWriter(new File(filePath))
+  val header = "scenario,runId,termChanges,uniqueLeaders,firstLeaderTime,splitVoteCount,maxSimultaneousCandidates,crashEvents,recoveryEvents,reElections,avgLeaderTenure"
+  writer.println(header)
+  stats.foreach { s =>
+    writer.println(s"${s.scenario},${s.runId},${s.termChanges},${s.uniqueLeaders},${s.firstLeaderTime},${s.splitVoteCount},${s.maxSimultaneousCandidates},${s.crashEvents},${s.recoveryEvents},${s.reElections},${s.avgLeaderTenure}")
+  }
+  writer.close()
+}
+
+@main def runAndSave(): Unit = {
+  val results = runAllScenarios(30)
+  saveResultsToCSV(results, "raft_simulation_results.csv")
+}
