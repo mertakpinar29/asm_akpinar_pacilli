@@ -7,6 +7,8 @@ const double TIMEOUT_RATE = 3.33;
 const double HEARTBEAT_RATE = 100.0;
 const double VOTE_RATE = 5.0;
 
+const int T; // for properties
+
 // ----------------------------------------
 // Shared Module: Global state variables
 // ----------------------------------------
