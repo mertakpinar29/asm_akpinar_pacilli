@@ -14,11 +14,13 @@ class RaftLeaderElection extends AggregateProgram with StandardSensors {
 
   def main(): String = {
     val id = mid()
+    // Total number of nodes
     val total = foldhood(0)(_ + _)(1) + 1
     val timeout = randomTimeout()
 
+    // Press 1 to put the node to the "Candidate" state
     def sense1 = sense[Boolean]("sens1")
-    val forceToCandidate = sense1
+    val forceToFollower = sense1
 
     val state: (Role, Int, Option[Int], Int) =
       rep[(Role, Int, Option[Int], Int)]((Follower, 0, None, 0)) {
@@ -30,15 +32,14 @@ class RaftLeaderElection extends AggregateProgram with StandardSensors {
           }
 
           // Detect visible leader and its term
-          val leaderSeenTerm = foldhood(-1)(Math.max) {
-            val neighborRole = nbr { roleCode }
-            val neighborTerm = nbr { currentTerm }
-            if (neighborRole == 2) neighborTerm else -1
-          }
+          val leaderSeenTerm =
+            foldhood(-1)(Math.max) {
+              val neighborRole = nbr { roleCode }
+              val neighborTerm = nbr { currentTerm }
+              if (neighborRole == 2) neighborTerm else -1
+            }
 
           val seesLeader = leaderSeenTerm >= 0
-
-
 
           // Reset timeout if leader is seen
           val nextTime = if (seesLeader) 0 else timePassed + 1
@@ -77,7 +78,7 @@ class RaftLeaderElection extends AggregateProgram with StandardSensors {
 
           val newRole = currentRole match {
             case Follower =>
-              if ((!seesLeader && nextTime > timeout) || forceToCandidate) Candidate else Follower
+              if (!seesLeader && nextTime > timeout) Candidate else Follower
 
             case Candidate =>
               if (votesReceived > total / 2) Leader
@@ -85,13 +86,7 @@ class RaftLeaderElection extends AggregateProgram with StandardSensors {
               else Candidate
 
             case Leader =>
-              val higherTermSeen = foldhood(false)(_ || _) {
-                nbr {
-                  currentTerm
-                } > currentTerm
-
-              }
-              if (maxNeighborTerm > currentTerm) Follower else Leader
+              if ((maxNeighborTerm > currentTerm) || forceToFollower) Follower else Leader
           }
 
           println(s"Node $id | Term: $nextTerm | Role: $newRole | VotedFor: $newVotedFor | Votes: $votesReceived | Time: $nextTime")
