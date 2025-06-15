@@ -9,7 +9,7 @@ import java.util.Random
   val trace = raftCTMC.newSimulationTrace(initial, new Random)
 
   trace
-    .takeWhile(_.time <= 10.0)
+    .takeWhile(_.time <= 40.0)
     .foreach { event =>
       val roles = event.state.servers.values.map(s => s"${s.id}:${s.role}").mkString(", ")
       println(f"t=${event.time}%.2f → $roles")
