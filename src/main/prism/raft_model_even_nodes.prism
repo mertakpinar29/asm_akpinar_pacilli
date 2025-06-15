@@ -1,0 +1,121 @@
+ctmc
+
+// ----------------------------------------
+// Constants (Timeout, Heartbeat, Voting Rates)
+// ----------------------------------------
+const double TIMEOUT_RATE = 3.33;
+const double HEARTBEAT_RATE = 100.0;
+const double VOTE_RATE = 5.0;
+
+const int T; // for parameterized time-bound queries
+
+// ----------------------------------------
+// Shared Module: Global state variables
+// ----------------------------------------
+module Shared
+  votes : [0..4] init 0;
+  leader_elected : bool init false;
+
+  heartbeat0 : bool init false;
+  heartbeat1 : bool init false;
+  heartbeat2 : bool init false;
+  heartbeat3 : bool init false;
+
+  term0 : [0..10] init 0;
+  term1 : [0..10] init 0;
+  term2 : [0..10] init 0;
+  term3 : [0..10] init 0;
+
+  [vote0] votes<4 -> (votes'=votes+1);
+  [vote1] votes<4 -> (votes'=votes+1);
+  [vote2] votes<4 -> (votes'=votes+1);
+  [vote3] votes<4 -> (votes'=votes+1);
+
+  [win0] true -> (leader_elected'=true);
+  [win1] true -> (leader_elected'=true);
+  [win2] true -> (leader_elected'=true);
+  [win3] true -> (leader_elected'=true);
+
+  [timeout0] term0<10 -> (term0'=term0+1);
+  [timeout1] term1<10 -> (term1'=term1+1);
+  [timeout2] term2<10 -> (term2'=term2+1);
+  [timeout3] term3<10 -> (term3'=term3+1);
+
+  // Heartbeat propagation
+  [heartbeat0to1] term0 >= term1 -> (heartbeat1'=true) & (term1'=term0);
+  [heartbeat0to2] term0 >= term2 -> (heartbeat2'=true) & (term2'=term0);
+  [heartbeat0to3] term0 >= term3 -> (heartbeat3'=true) & (term3'=term0);
+
+  [heartbeat1to0] term1 >= term0 -> (heartbeat0'=true) & (term0'=term1);
+  [heartbeat1to2] term1 >= term2 -> (heartbeat2'=true) & (term2'=term1);
+  [heartbeat1to3] term1 >= term3 -> (heartbeat3'=true) & (term3'=term1);
+
+  [heartbeat2to0] term2 >= term0 -> (heartbeat0'=true) & (term0'=term2);
+  [heartbeat2to1] term2 >= term1 -> (heartbeat1'=true) & (term1'=term2);
+  [heartbeat2to3] term2 >= term3 -> (heartbeat3'=true) & (term3'=term2);
+
+  [heartbeat3to0] term3 >= term0 -> (heartbeat0'=true) & (term0'=term3);
+  [heartbeat3to1] term3 >= term1 -> (heartbeat1'=true) & (term1'=term3);
+  [heartbeat3to2] term3 >= term2 -> (heartbeat2'=true) & (term2'=term3);
+
+  [reset_heartbeats] true ->
+    (heartbeat0'=false) & (heartbeat1'=false) &
+    (heartbeat2'=false) & (heartbeat3'=false);
+endmodule
+
+// Server modules
+module Server0
+  s0 : [0..3] init 0;
+  [timeout0] s0=0 & !leader_elected & !heartbeat0 & term0<10 -> TIMEOUT_RATE : (s0'=1);
+  [vote0] s0=1 & votes<3 & !leader_elected & term0 >= max(term1, term2, term3) -> VOTE_RATE : (s0'=1);
+  [win0] s0=1 & votes>=3 & !leader_elected & term0 >= max(term1, term2, term3) -> 1.0 : (s0'=2);
+  [crash0] s0<3 -> 0.01 : (s0'=3);
+  [recover0] s0=3 -> 0.2 : (s0'=0);
+  [heartbeat0to1] s0=2 -> HEARTBEAT_RATE : (s0'=2);
+  [heartbeat0to2] s0=2 -> HEARTBEAT_RATE : (s0'=2);
+  [heartbeat0to3] s0=2 -> HEARTBEAT_RATE : (s0'=2);
+  [reset_heartbeats] true -> 1.0 : (s0'=s0);
+endmodule
+
+module Server1
+  s1 : [0..3] init 0;
+  [timeout1] s1=0 & !leader_elected & !heartbeat1 & term1<10 -> TIMEOUT_RATE : (s1'=1);
+  [vote1] s1=1 & votes<3 & !leader_elected & term1 >= max(term0, term2, term3) -> VOTE_RATE : (s1'=1);
+  [win1] s1=1 & votes>=3 & !leader_elected & term1 >= max(term0, term2, term3) -> 1.0 : (s1'=2);
+  [crash1] s1<3 -> 0.01 : (s1'=3);
+  [recover1] s1=3 -> 0.2 : (s1'=0);
+  [heartbeat1to0] s1=2 -> HEARTBEAT_RATE : (s1'=2);
+  [heartbeat1to2] s1=2 -> HEARTBEAT_RATE : (s1'=2);
+  [heartbeat1to3] s1=2 -> HEARTBEAT_RATE : (s1'=2);
+  [reset_heartbeats] true -> 1.0 : (s1'=s1);
+endmodule
+
+module Server2
+  s2 : [0..3] init 0;
+  [timeout2] s2=0 & !leader_elected & !heartbeat2 & term2<10 -> TIMEOUT_RATE : (s2'=1);
+  [vote2] s2=1 & votes<3 & !leader_elected & term2 >= max(term0, term1, term3) -> VOTE_RATE : (s2'=1);
+  [win2] s2=1 & votes>=3 & !leader_elected & term2 >= max(term0, term1, term3) -> 1.0 : (s2'=2);
+  [crash2] s2<3 -> 0.01 : (s2'=3);
+  [recover2] s2=3 -> 0.2 : (s2'=0);
+  [heartbeat2to0] s2=2 -> HEARTBEAT_RATE : (s2'=2);
+  [heartbeat2to1] s2=2 -> HEARTBEAT_RATE : (s2'=2);
+  [heartbeat2to3] s2=2 -> HEARTBEAT_RATE : (s2'=2);
+  [reset_heartbeats] true -> 1.0 : (s2'=s2);
+endmodule
+
+module Server3
+  s3 : [0..3] init 0;
+  [timeout3] s3=0 & !leader_elected & !heartbeat3 & term3<10 -> TIMEOUT_RATE : (s3'=1);
+  [vote3] s3=1 & votes<3 & !leader_elected & term3 >= max(term0, term1, term2) -> VOTE_RATE : (s3'=1);
+  [win3] s3=1 & votes>=3 & !leader_elected & term3 >= max(term0, term1, term2) -> 1.0 : (s3'=2);
+  [crash3] s3<3 -> 0.01 : (s3'=3);
+  [recover3] s3=3 -> 0.2 : (s3'=0);
+  [heartbeat3to0] s3=2 -> HEARTBEAT_RATE : (s3'=2);
+  [heartbeat3to1] s3=2 -> HEARTBEAT_RATE : (s3'=2);
+  [heartbeat3to2] s3=2 -> HEARTBEAT_RATE : (s3'=2);
+  [reset_heartbeats] true -> 1.0 : (s3'=s3);
+endmodule
+
+rewards "time"
+  true : 1;
+endrewards

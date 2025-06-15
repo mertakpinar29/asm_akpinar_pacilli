@@ -1,0 +1,14 @@
+// Leader Uniqueness: no two leaders can exist simultaneously
+P<=0 [ F (s0=2&s1=2)|(s0=2&s2=2)|(s1=2&s2=2) ]
+
+// Election Safety: if a node is leader, its term is the highest
+P>=1 [ G ((s0=2=>term0>=term1&term0>=term2)&(s1=2=>term1>=term0&term1>=term2)&(s2=2=>term2>=term0&term2>=term1)) ]
+
+// With at least 99% probability, a leader is elected within 3 time units
+P>=0.99 [ F<=3 (s0=2|s1=2|s2=2) ]
+
+// What's the probability that one of the servers becomes a leader within T units of time?
+P=? [ F<=T (s0=2|s1=2|s2=2) ]
+
+// Probability of nodes terms divergence
+P=? [ F (term0>term1+3|term1>term0+3|term0>term2+3|term2>term0+3|term1>term2+3|term2>term1+3) ]

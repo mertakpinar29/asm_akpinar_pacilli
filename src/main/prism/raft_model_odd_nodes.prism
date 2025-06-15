@@ -1,0 +1,118 @@
+ctmc
+
+// ----------------------------------------
+// Constants (Timeout, Heartbeat, Voting Rates)
+// ----------------------------------------
+const double TIMEOUT_RATE = 3.33;
+const double HEARTBEAT_RATE = 100.0;
+const double VOTE_RATE = 5.0;
+
+const int T; // for properties
+
+// ----------------------------------------
+// Shared Module: Global state variables
+// ----------------------------------------
+module Shared
+  votes : [0..3] init 0; // Vote counter (max 3 votes total)
+  leader_elected : bool init false;
+
+  // Heartbeat flags: each follower resets this when it receives a heartbeat
+  heartbeat0 : bool init false;
+  heartbeat1 : bool init false;
+  heartbeat2 : bool init false;
+
+  // Term numbers for each server (used to prevent outdated leadership)
+  term0 : [0..10] init 0;
+  term1 : [0..10] init 0;
+  term2 : [0..10] init 0;
+
+  // Voting transitions — vote granted if under 3 total votes
+  [vote0] votes<3 -> (votes'=votes+1);
+  [vote1] votes<3 -> (votes'=votes+1);
+  [vote2] votes<3 -> (votes'=votes+1);
+
+  // Election finalized — leader_elected becomes true
+  [win0] true -> (leader_elected'=true);
+  [win1] true -> (leader_elected'=true);
+  [win2] true -> (leader_elected'=true);
+
+  // Term increment when timeout occurs
+  [timeout0] term0<10 -> (term0'=term0+1);
+  [timeout1] term1<10 -> (term1'=term1+1);
+  [timeout2] term2<10 -> (term2'=term2+1);
+
+  // Heartbeat propagation: if a leader has higher/equal term, update follower
+  [heartbeat0to1] term0 >= term1 -> (heartbeat1'=true) & (term1'=term0);
+  [heartbeat0to2] term0 >= term2 -> (heartbeat2'=true) & (term2'=term0);
+  [heartbeat1to0] term1 >= term0 -> (heartbeat0'=true) & (term0'=term1);
+  [heartbeat1to2] term1 >= term2 -> (heartbeat2'=true) & (term2'=term1);
+  [heartbeat2to0] term2 >= term0 -> (heartbeat0'=true) & (term0'=term2);
+  [heartbeat2to1] term2 >= term1 -> (heartbeat1'=true) & (term1'=term2);
+
+   // Periodically reset all heartbeat flags
+  [reset_heartbeats] true -> (heartbeat0'=false) & (heartbeat1'=false) & (heartbeat2'=false);
+endmodule
+
+
+// ----------------------------------------
+// Servers
+// ----------------------------------------
+module Server0
+  s0 : [0..3] init 0;
+  // 0 = Follower, 1 = Candidate, 2 = Leader, 3 = Crashed
+
+  // Timeout triggers candidacy if no recent heartbeat and no leader elected
+  [timeout0] s0=0 & !leader_elected & !heartbeat0 & term0<10 -> TIMEOUT_RATE : (s0'=1);
+
+  // Vote granted if candidate has highest term and quorum not reached
+  [vote0] s0=1 & votes<2 & !leader_elected & term0 >= term1 & term0 >= term2 -> VOTE_RATE : (s0'=1);
+
+  // Wins election if got majority and still highest term
+  [win0] s0=1 & votes>=2 & !leader_elected & term0 >= term1 & term0 >= term2 -> 1.0 : (s0'=2);
+
+  // Can crash at any moment while not already crashed
+  [crash0] s0=0 | s0=1 | s0=2 -> 0.01 : (s0'=3);
+
+  // Recovery: returns to follower
+  [recover0] s0=3 -> 0.2 : (s0'=0);
+
+  // Sends heartbeat to other servers if leader
+  [heartbeat0to1] s0=2 -> HEARTBEAT_RATE : (s0'=2);
+  [heartbeat0to2] s0=2 -> HEARTBEAT_RATE : (s0'=2);
+
+  // Dummy transition to sync with heartbeat reset
+  [reset_heartbeats] true -> 1.0 : (s0'=s0);
+endmodule
+
+module Server1
+  s1 : [0..3] init 0;
+
+  [timeout1] s1=0 & !leader_elected & !heartbeat1 & term1<10 -> TIMEOUT_RATE : (s1'=1);
+  [vote1] s1=1 & votes<2 & !leader_elected & term1 >= term0 & term1 >= term2 -> VOTE_RATE : (s1'=1);
+  [win1] s1=1 & votes>=2 & !leader_elected & term1 >= term0 & term1 >= term2 -> 1.0 : (s1'=2);
+  [crash1] s1=0 | s1=1 | s1=2 -> 0.01 : (s1'=3);
+  [recover1] s1=3 -> 0.2 : (s1'=0);
+  [heartbeat1to0] s1=2 -> HEARTBEAT_RATE : (s1'=2);
+  [heartbeat1to2] s1=2 -> HEARTBEAT_RATE : (s1'=2);
+  [reset_heartbeats] true -> 1.0 : (s1'=s1);
+endmodule
+
+module Server2
+  s2 : [0..3] init 0;
+
+  [timeout2] s2=0 & !leader_elected & !heartbeat2 & term2<10 -> TIMEOUT_RATE : (s2'=1);
+  [vote2] s2=1 & votes<2 & !leader_elected & term2 >= term0 & term2 >= term1 -> VOTE_RATE : (s2'=1);
+  [win2] s2=1 & votes>=2 & !leader_elected & term2 >= term0 & term2 >= term1 -> 1.0 : (s2'=2);
+  [crash2] s2=0 | s2=1 | s2=2 -> 0.01 : (s2'=3);
+  [recover2] s2=3 -> 0.2 : (s2'=0);
+  [heartbeat2to0] s2=2 -> HEARTBEAT_RATE : (s2'=2);
+  [heartbeat2to1] s2=2 -> HEARTBEAT_RATE : (s2'=2);
+  [reset_heartbeats] true -> 1.0 : (s2'=s2);
+endmodule
+
+// ----------------------------------------
+// Reward structure: measures elapsed time
+// ----------------------------------------
+rewards "time"
+  true : 1;
+endrewards

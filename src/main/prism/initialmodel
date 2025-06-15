@@ -1,0 +1,134 @@
+ctmc
+// Constants
+const int MAX_TERM = 10;
+const int MAJORITY = 3; // Majority of 5 servers
+
+// Server 0
+module Server0
+  role0 : [0..3] init 0;
+  term0 : [0..MAX_TERM] init 0;
+  timeoutExpired0 : bool init false;
+  voted0 : bool init false;
+  votedFor0 : [0..4] init 4;
+
+  [expireTimeout0] role0=0 & !timeoutExpired0 -> (timeoutExpired0'=true);
+  [becomeCand0] role0=0 & timeoutExpired0 & term0 < MAX_TERM ->
+    (role0'=1) & (term0'=term0+1) & (voted0'=true) & (votedFor0'=0) & (timeoutExpired0'=false);
+
+  [requestVote0to1] true -> true;
+  [requestVote0to2] true -> true;
+  [requestVote0to3] true -> true;
+  [requestVote0to4] true -> true;
+
+  [winElection0] role0=1 & ((votedFor0=0?1:0)+(votedFor1=0?1:0)+(votedFor2=0?1:0)+(votedFor3=0?1:0)+(votedFor4=0?1:0)) >= MAJORITY -> (role0'=2);
+
+  [heartbeat0] role0=2 -> true;
+  [crash0] role0=2 -> (role0'=3);
+  [recover0] role0=3 -> (role0'=0) & (voted0'=false) & (votedFor0'=4) & (timeoutExpired0'=false);
+endmodule
+
+// Server 1
+module Server1
+  role1 : [0..3] init 0;
+  term1 : [0..MAX_TERM] init 0;
+  timeoutExpired1 : bool init false;
+  voted1 : bool init false;
+  votedFor1 : [0..4] init 4;
+
+  [expireTimeout1] role1=0 & !timeoutExpired1 -> (timeoutExpired1'=true);
+  [becomeCand1] role1=0 & timeoutExpired1 & term1 < MAX_TERM ->
+    (role1'=1) & (term1'=term1+1) & (voted1'=true) & (votedFor1'=1) & (timeoutExpired1'=false);
+
+  [requestVote0to1] role1=0 & !voted1 & term0 >= term1 -> (voted1'=true) & (votedFor1'=0) & (term1'=term0);
+  [requestVote1to0] true -> true;
+  [requestVote1to2] true -> true;
+  [requestVote1to3] true -> true;
+  [requestVote1to4] true -> true;
+
+  [winElection1] role1=1 & ((votedFor0=1?1:0)+(votedFor1=1?1:0)+(votedFor2=1?1:0)+(votedFor3=1?1:0)+(votedFor4=1?1:0)) >= MAJORITY -> (role1'=2);
+
+  [heartbeat1] role1=2 -> true;
+  [crash1] role1=2 -> (role1'=3);
+  [recover1] role1=3 -> (role1'=0) & (voted1'=false) & (votedFor1'=4) & (timeoutExpired1'=false);
+endmodule
+
+// Server 2
+module Server2
+  role2 : [0..3] init 0;
+  term2 : [0..MAX_TERM] init 0;
+  timeoutExpired2 : bool init false;
+  voted2 : bool init false;
+  votedFor2 : [0..4] init 4;
+
+  [expireTimeout2] role2=0 & !timeoutExpired2 -> (timeoutExpired2'=true);
+  [becomeCand2] role2=0 & timeoutExpired2 & term2 < MAX_TERM ->
+    (role2'=1) & (term2'=term2+1) & (voted2'=true) & (votedFor2'=2) & (timeoutExpired2'=false);
+
+  [requestVote0to2] role2=0 & !voted2 & term0 >= term2 -> (voted2'=true) & (votedFor2'=0) & (term2'=term0);
+  [requestVote1to2] role2=0 & !voted2 & term1 >= term2 -> (voted2'=true) & (votedFor2'=1) & (term2'=term1);
+  [requestVote2to0] true -> true;
+  [requestVote2to1] true -> true;
+  [requestVote2to3] true -> true;
+  [requestVote2to4] true -> true;
+
+  [winElection2] role2=1 & ((votedFor0=2?1:0)+(votedFor1=2?1:0)+(votedFor2=2?1:0)+(votedFor3=2?1:0)+(votedFor4=2?1:0)) >= MAJORITY -> (role2'=2);
+
+  [heartbeat2] role2=2 -> true;
+  [crash2] role2=2 -> (role2'=3);
+  [recover2] role2=3 -> (role2'=0) & (voted2'=false) & (votedFor2'=4) & (timeoutExpired2'=false);
+endmodule
+
+// Server 3
+module Server3
+  role3 : [0..3] init 0;
+  term3 : [0..MAX_TERM] init 0;
+  timeoutExpired3 : bool init false;
+  voted3 : bool init false;
+  votedFor3 : [0..4] init 4;
+
+  [expireTimeout3] role3=0 & !timeoutExpired3 -> (timeoutExpired3'=true);
+  [becomeCand3] role3=0 & timeoutExpired3 & term3 < MAX_TERM ->
+    (role3'=1) & (term3'=term3+1) & (voted3'=true) & (votedFor3'=3) & (timeoutExpired3'=false);
+
+  [requestVote0to3] role3=0 & !voted3 & term0 >= term3 -> (voted3'=true) & (votedFor3'=0) & (term3'=term0);
+  [requestVote1to3] role3=0 & !voted3 & term1 >= term3 -> (voted3'=true) & (votedFor3'=1) & (term3'=term1);
+  [requestVote2to3] role3=0 & !voted3 & term2 >= term3 -> (voted3'=true) & (votedFor3'=2) & (term3'=term2);
+  [requestVote3to0] true -> true;
+  [requestVote3to1] true -> true;
+  [requestVote3to2] true -> true;
+  [requestVote3to4] true -> true;
+
+  [winElection3] role3=1 & ((votedFor0=3?1:0)+(votedFor1=3?1:0)+(votedFor2=3?1:0)+(votedFor3=3?1:0)+(votedFor4=3?1:0)) >= MAJORITY -> (role3'=2);
+
+  [heartbeat3] role3=2 -> true;
+  [crash3] role3=2 -> (role3'=3);
+  [recover3] role3=3 -> (role3'=0) & (voted3'=false) & (votedFor3'=4) & (timeoutExpired3'=false);
+endmodule
+
+// Server 4
+module Server4
+  role4 : [0..3] init 0;
+  term4 : [0..MAX_TERM] init 0;
+  timeoutExpired4 : bool init false;
+  voted4 : bool init false;
+  votedFor4 : [0..4] init 4;
+
+  [expireTimeout4] role4=0 & !timeoutExpired4 -> (timeoutExpired4'=true);
+  [becomeCand4] role4=0 & timeoutExpired4 & term4 < MAX_TERM ->
+    (role4'=1) & (term4'=term4+1) & (voted4'=true) & (votedFor4'=4) & (timeoutExpired4'=false);
+
+  [requestVote0to4] role4=0 & !voted4 & term0 >= term4 -> (voted4'=true) & (votedFor4'=0) & (term4'=term0);
+  [requestVote1to4] role4=0 & !voted4 & term1 >= term4 -> (voted4'=true) & (votedFor4'=1) & (term4'=term1);
+  [requestVote2to4] role4=0 & !voted4 & term2 >= term4 -> (voted4'=true) & (votedFor4'=2) & (term4'=term2);
+  [requestVote3to4] role4=0 & !voted4 & term3 >= term4 -> (voted4'=true) & (votedFor4'=3) & (term4'=term3);
+  [requestVote4to0] true -> true;
+  [requestVote4to1] true -> true;
+  [requestVote4to2] true -> true;
+  [requestVote4to3] true -> true;
+
+  [winElection4] role4=1 & ((votedFor0=4?1:0)+(votedFor1=4?1:0)+(votedFor2=4?1:0)+(votedFor3=4?1:0)+(votedFor4=4?1:0)) >= MAJORITY -> (role4'=2);
+
+  [heartbeat4] role4=2 -> true;
+  [crash4] role4=2 -> (role4'=3);
+  [recover4] role4=3 -> (role4'=0) & (voted4'=false) & (votedFor4'=4) & (timeoutExpired4'=false);
+endmodule
