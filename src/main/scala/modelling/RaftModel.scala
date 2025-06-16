@@ -26,10 +26,8 @@ val MTBF: Double = 100.0 // Mean Time Between Failures
 
 val TIMEOUT_RATE = 1.0 / ELECTION_TIMEOUT // ≈ 3.33
 val HEARTBEAT_RATE = 1.0 / BROADCAST_TIME // ≈ 50.0
-val CRASH_RATE = 50.0 / MTBF // 0.01
+val CRASH_RATE = 50.0 / MTBF // 0.5
 val RECOVERY_RATE: Double = 1.0 / 5.0 // 0.2
-
-var startElection: LocalTime = LocalTime.now()
 
 object RaftModel:
   def initialState(numServers: Int): ServerState = // all servers start as followers at term 0
@@ -202,7 +200,6 @@ object RaftModel:
         followerIds.map { fid =>
           val updatedState = sendHeartbeat(state, leader.id, fid)
 
-          // Optional debug logging — remove in final version
           val from = state.servers(fid)
           val to = updatedState.servers(fid)
           //if from.role != to.role || from.term != to.term then
