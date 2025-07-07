@@ -1,7 +1,5 @@
 package modelling
 import modelling.CTMC.*
-import scala.util.Random
-import java.time.LocalTime
 
 enum Role:
   case Follower, Candidate, Leader, Crashed
@@ -61,7 +59,7 @@ object RaftModel:
         maybeLeader match
           case Some(leader) =>
             if leader.term >= server.term then
-              // Leader exists with different term: step down
+              // Leader exists with higher or equal term: step down
               val updatedServer = server.copy(
                 role = Role.Follower,
                 term = leader.term,
@@ -70,7 +68,7 @@ object RaftModel:
               val updatedServers = state.servers.updated(serverId, updatedServer)
               state.copy(servers = updatedServers, currentTerm = leader.term)
             else
-              // Leader with same term, no action needed
+              // Leader with lower term: continue as candidate
               state
 
           case None =>
@@ -161,7 +159,6 @@ object RaftModel:
           term = leader.term,
           votedFor = None
         )
-
       case Role.Leader if leader.term > receiver.term =>
         receiver.copy(
           role = Role.Follower,
@@ -196,8 +193,8 @@ object RaftModel:
         case _ => Set.empty
       }.toSet
       val heartbeatTransitions: Set[Action[ServerState]] = leaders.flatMap { leader =>
-        val followerIds = state.servers.keySet - leader.id
-        followerIds.map { fid =>
+        val otherIds = state.servers.keySet - leader.id
+        otherIds.map { fid =>
           val updatedState = sendHeartbeat(state, leader.id, fid)
 
           val from = state.servers(fid)
